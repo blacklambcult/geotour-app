@@ -179,7 +179,7 @@ tab_audit, tab_route = st.tabs(["📊 Экспресс-аудит локации
 # ВКЛАДКА 1: ЭКСПРЕСС-АУДИТ
 # ==============================================================================
 with tab_audit:
-    m_audit = folium.Map(location=map_center, zoom_start=current_zoom, tiles="CartoDB positron")
+    m_audit = folium.Map(location=map_center, zoom_start=current_zoom, tiles="OpenStreetMap")
 
     if st.session_state.target_coords:
         lat, lon = st.session_state.target_coords
@@ -327,7 +327,7 @@ with tab_route:
                     st.warning(f"⚠️ Баланс тура: **{balance_ratio:.0f}% впечатлений** (Риск усталости от переездов).")
 
             with col_rv:
-                m_route = folium.Map(location=hotel_pt, zoom_start=current_zoom, tiles="CartoDB positron")
+                m_route = folium.Map(location=hotel_pt, zoom_start=current_zoom, tiles="OpenStreetMap")
                 folium.PolyLine(
                     locations=route_coords,
                     color="#e74c3c", weight=4, opacity=0.85, dash_array="6",
