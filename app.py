@@ -13,7 +13,7 @@ st.set_page_config(page_title="GeoTour: 2GIS Геоаналитика", layout="
 st.title("🏨 GeoTour: Геомаркетинговый аудит и Конструктор туров")
 st.caption("Система поддержки маркетинговых решений туристского предприятия на базе 2GIS Places API (Республика Татарстан)")
 
-# API Ключ 2ГИС
+# 2GIS API ключ
 TWOGIS_API_KEY = "a7f48cf3-379c-43cb-8f31-99a8688f1319"
 
 # 1. Боковая панель
@@ -55,19 +55,16 @@ def solve_tsp_nearest_neighbor(start_coords, points):
         cur_lat, cur_lon = next_pt['lat'], next_pt['lon']
     return route
 
-# 3. Запрос данных к 2GIS Places API 3.0
+# 3. Запрос данных к 2GIS Places API по официальной документации
 @st.cache_data(show_spinner=False, ttl=1800)
-def fetch_2gis_category(lat, lon, radius_meters, query_text, cat_name):
+def fetch_2gis_places(lat, lon, query_text, cat_name):
     url = "https://catalog.api.2gis.com/3.0/items"
     
-    # Стандарт 2GIS 3.0: point=lon,lat и радиус в метрах (до 15000 м)
+    # Строго по документации: q, location=lon,lat, fields=items.point, key
     params = {
         "q": query_text,
-        "point": f"{lon:.6f},{lat:.6f}",
-        "radius": min(radius_meters, 15000),
-        "type": "branch",
-        "page_size": 25,
-        "sort": "distance",
+        "location": f"{lon:.6f},{lat:.6f}",
+        "page_size": 30,
         "fields": "items.point",
         "key": TWOGIS_API_KEY
     }
@@ -80,42 +77,21 @@ def fetch_2gis_category(lat, lon, radius_meters, query_text, cat_name):
             data = r.json()
             items = data.get("result", {}).get("items", [])
             for it in items:
-                p = it.get("point")
-                if p and "lat" in p and "lon" in p:
+                point = it.get("point")
+                if point and "lat" in point and "lon" in point:
                     found.append({
                         "name": it.get("name", "Объект"),
-                        "lat": p["lat"],
-                        "lon": p["lon"],
-                        "category": cat_name
+                        "lat": point["lat"],
+                        "lon": point["lon"],
+                        "category": cat_name,
+                        "address": it.get("address_name", "")
                     })
         else:
-            error_msg = f"HTTP {r.status_code}"
+            error_msg = f"HTTP {r.status_code}: {r.text[:80]}"
     except Exception as e:
         error_msg = str(e)
         
     return found, error_msg
-
-# Резервная опора на случай сетевых сбоев
-FALLBACK_TATARSTAN = [
-    {"name": "Казанский Кремль и Мечеть Кул-Шариф", "lat": 55.7983, "lon": 49.1052, "category": "Магнит (POI)"},
-    {"name": "Улица Баумана (Казанский Арбат)", "lat": 55.7925, "lon": 49.1120, "category": "Магнит (POI)"},
-    {"name": "Старо-Татарская слобода", "lat": 55.7865, "lon": 49.1165, "category": "Магнит (POI)"},
-    {"name": "Национальный музей РТ", "lat": 55.7960, "lon": 49.1245, "category": "Магнит (POI)"},
-    {"name": "Центр семьи 'Казан' (Чаша)", "lat": 55.8205, "lon": 49.1350, "category": "Магнит (POI)"},
-    {"name": "Остров-град Свияжск", "lat": 55.7712, "lon": 48.6570, "category": "Магнит (POI)"},
-    {"name": "Раифский монастырь", "lat": 55.9015, "lon": 48.7290, "category": "Магнит (POI)"},
-    {"name": "Камское Устье (Гора Лобач)", "lat": 55.2010, "lon": 49.2150, "category": "Магнит (POI)"},
-    {"name": "Отель Ривьера & Аквапарк", "lat": 55.8150, "lon": 49.1360, "category": "Конкурент"},
-    {"name": "Korston Club Hotel", "lat": 55.7930, "lon": 49.1450, "category": "Конкурент"},
-    {"name": "Отель Шаляпин Палас", "lat": 55.7890, "lon": 49.1180, "category": "Конкурент"},
-    {"name": "Гранд Отель Казань", "lat": 55.7870, "lon": 49.1210, "category": "Конкурент"},
-    {"name": "Mirage Hotel 5*", "lat": 55.7950, "lon": 49.1080, "category": "Конкурент"},
-    {"name": "Дом Татарской Кулинарии", "lat": 55.7915, "lon": 49.1140, "category": "Инфраструктура"},
-    {"name": "Кафе Чак-Чак", "lat": 55.7880, "lon": 49.1170, "category": "Инфраструктура"},
-    {"name": "Ресторан Приют Холостяка", "lat": 55.7990, "lon": 49.1280, "category": "Инфраструктура"},
-    {"name": "Ресторан Панорама", "lat": 55.8230, "lon": 49.1410, "category": "Инфраструктура"},
-    {"name": "АЗС Лукойл Центр", "lat": 55.8050, "lon": 49.1150, "category": "Инфраструктура"}
-]
 
 # 4. Экспорт отчетов
 def generate_excel_report(lat, lon, radius_km, score, verdict, attractions, competitors, amenities):
@@ -185,26 +161,24 @@ api_status = ""
 
 if st.session_state.target_coords:
     c_lat, c_lon = st.session_state.target_coords
-    with st.spinner("Запрос к каталогу 2GIS API..."):
-        poi_2gis, err1 = fetch_2gis_category(c_lat, c_lon, radius_m, "музей памятник театр парк", "Магнит (POI)")
-        comp_2gis, err2 = fetch_2gis_category(c_lat, c_lon, radius_m, "гостиница отель хостел", "Конкурент")
-        infra_2gis, err3 = fetch_2gis_category(c_lat, c_lon, radius_m, "кафе ресторан", "Инфраструктура")
+    with st.spinner("Запрос к официальному каталогу 2GIS Places API..."):
+        # Запросы по документации 2GIS: q=достопримечательности, q=гостиница, q=кафе
+        raw_poi, err1 = fetch_2gis_places(c_lat, c_lon, "достопримечательности", "Магнит (POI)")
+        raw_comp, err2 = fetch_2gis_places(c_lat, c_lon, "гостиница", "Конкурент")
+        raw_infra, err3 = fetch_2gis_places(c_lat, c_lon, "кафе", "Инфраструктура")
         
-        if len(poi_2gis) > 0 or len(comp_2gis) > 0 or len(infra_2gis) > 0:
-            attractions = poi_2gis
-            competitors = comp_2gis
-            amenities = infra_2gis
-            api_status = f"✅ Данные получены из 2GIS API в реальном времени (найдено {len(attractions) + len(competitors) + len(amenities)} объектов)"
+        # Точная фильтрация полученных объектов в радиусе пользователя
+        attractions = [p for p in raw_poi if haversine_distance(c_lat, c_lon, p["lat"], p["lon"]) * 1000 <= radius_m]
+        competitors = [c for c in raw_comp if haversine_distance(c_lat, c_lon, c["lat"], c["lon"]) * 1000 <= radius_m]
+        amenities = [i for i in raw_infra if haversine_distance(c_lat, c_lon, i["lat"], i["lon"]) * 1000 <= radius_m]
+        
+        total_found = len(attractions) + len(competitors) + len(amenities)
+        if total_found > 0:
+            api_status = f"✅ 2GIS Places API вернул {total_found} реальных объектов в радиусе {radius_km} км"
+        elif err1 or err2 or err3:
+            api_status = f"⚠️ Ошибка вызова 2GIS: {err1 or err2 or err3}"
         else:
-            api_status = f"ℹ️ 2GIS вернул 0 результатов по данному радиусу. Подключен региональный реестр Татарстана."
-            for fb in FALLBACK_TATARSTAN:
-                if haversine_distance(c_lat, c_lon, fb["lat"], fb["lon"]) * 1000 <= radius_m:
-                    if fb["category"] == "Магнит (POI)":
-                        attractions.append(fb)
-                    elif fb["category"] == "Конкурент":
-                        competitors.append(fb)
-                    else:
-                        amenities.append(fb)
+            api_status = f"ℹ️ 2GIS API отработал штатно, но в радиусе {radius_km} км объекты не найдены. Попробуйте увеличить радиус."
 
 tab_audit, tab_route = st.tabs(["📊 Экспресс-аудит локации", "🗺️ Конструктор экскурсионного маршрута"])
 
@@ -231,13 +205,13 @@ with tab_audit:
 
         if show_poi:
             for p in attractions:
-                folium.Marker([p['lat'], p['lon']], popup=f"<b>{p['name']}</b>", icon=folium.Icon(color="green", icon="tree-conifer")).add_to(cluster_poi)
+                folium.Marker([p['lat'], p['lon']], popup=f"<b>{p['name']}</b><br>{p.get('address','')}", icon=folium.Icon(color="green", icon="tree-conifer")).add_to(cluster_poi)
         if show_comp:
             for c in competitors:
-                folium.Marker([c['lat'], c['lon']], popup=f"<b>{c['name']}</b>", icon=folium.Icon(color="orange", icon="bed")).add_to(cluster_comp)
+                folium.Marker([c['lat'], c['lon']], popup=f"<b>{c['name']}</b><br>{c.get('address','')}", icon=folium.Icon(color="orange", icon="bed")).add_to(cluster_comp)
         if show_infra:
             for im in amenities:
-                folium.Marker([im['lat'], im['lon']], popup=f"<b>{im['name']}</b>", icon=folium.Icon(color="blue", icon="cutlery")).add_to(cluster_infra)
+                folium.Marker([im['lat'], im['lon']], popup=f"<b>{im['name']}</b><br>{im.get('address','')}", icon=folium.Icon(color="blue", icon="cutlery")).add_to(cluster_infra)
 
     col_map1, col_rep1 = st.columns([3, 2])
     with col_map1:
@@ -260,13 +234,13 @@ with tab_audit:
             comp_count = len(competitors)
             infra_count = len(amenities)
 
-            poi_score = min(poi_count * 4, 45)
+            poi_score = min(poi_count * 5, 45)
             infra_score = min(infra_count * 2, 25)
             transport_score = 15
 
-            if poi_count >= 6:
+            if poi_count >= 5:
                 market_balance = 15
-            elif poi_count >= 2:
+            elif poi_count >= 1:
                 market_balance = 10
             else:
                 market_balance = -min(comp_count * 2, 15)
@@ -282,7 +256,7 @@ with tab_audit:
 
             st.markdown("---")
             if total_score >= 70:
-                if poi_count >= 6:
+                if poi_count >= 5:
                     verdict_ru = "ВЫСОКИЙ ПОТЕНЦИАЛ: Плотный городской кластер. Рекомендован отель 3-4* или апарт-комплекс для туристов и деловых гостей."
                     verdict_en = "HIGH POTENTIAL: High-density urban cluster. 3-4 star city hotel or apart-hotel recommended."
                 else:
@@ -333,7 +307,7 @@ with tab_route:
         col_rc, col_rv = st.columns([1, 2])
 
         with col_rc:
-            poi_dict = {f"{p['name']}": p for p in attractions}
+            poi_dict = {f"{p['name']} ({p.get('address','')})": p for p in attractions}
             selected_names = st.multiselect(
                 "Объекты для программы тура:",
                 options=list(poi_dict.keys()),
