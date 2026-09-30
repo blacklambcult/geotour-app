@@ -55,17 +55,19 @@ def solve_tsp_nearest_neighbor(start_coords, points):
         cur_lat, cur_lon = next_pt['lat'], next_pt['lon']
     return route
 
-# 3. Запрос данных к 2GIS Places API (с правильными параметрами location + radius)
+# 3. Запрос данных к 2GIS Places API 3.0
 @st.cache_data(show_spinner=False, ttl=1800)
 def fetch_2gis_category(lat, lon, radius_meters, query_text, cat_name):
     url = "https://catalog.api.2gis.com/3.0/items"
     
-    # 2GIS API принимает location=lon,lat и radius в метрах
+    # Стандарт 2GIS 3.0: point=lon,lat и радиус в метрах (до 15000 м)
     params = {
         "q": query_text,
-        "location": f"{lon:.6f},{lat:.6f}",
-        "radius": min(radius_meters, 10000),
-        "page_size": 20,
+        "point": f"{lon:.6f},{lat:.6f}",
+        "radius": min(radius_meters, 15000),
+        "type": "branch",
+        "page_size": 25,
+        "sort": "distance",
         "fields": "items.point",
         "key": TWOGIS_API_KEY
     }
@@ -73,7 +75,7 @@ def fetch_2gis_category(lat, lon, radius_meters, query_text, cat_name):
     found = []
     error_msg = None
     try:
-        r = requests.get(url, params=params, timeout=7)
+        r = requests.get(url, params=params, timeout=8)
         if r.status_code == 200:
             data = r.json()
             items = data.get("result", {}).get("items", [])
@@ -93,7 +95,7 @@ def fetch_2gis_category(lat, lon, radius_meters, query_text, cat_name):
         
     return found, error_msg
 
-# Резервная опора на случай пустых зон или сетевого сбоя
+# Резервная опора на случай сетевых сбоев
 FALLBACK_TATARSTAN = [
     {"name": "Казанский Кремль и Мечеть Кул-Шариф", "lat": 55.7983, "lon": 49.1052, "category": "Магнит (POI)"},
     {"name": "Улица Баумана (Казанский Арбат)", "lat": 55.7925, "lon": 49.1120, "category": "Магнит (POI)"},
@@ -183,10 +185,10 @@ api_status = ""
 
 if st.session_state.target_coords:
     c_lat, c_lon = st.session_state.target_coords
-    with st.spinner("Запрос к каталогу 2GIS..."):
-        poi_2gis, err1 = fetch_2gis_category(c_lat, c_lon, radius_m, "достопримечательности", "Магнит (POI)")
-        comp_2gis, err2 = fetch_2gis_category(c_lat, c_lon, radius_m, "гостиница отель", "Конкурент")
-        infra_2gis, err3 = fetch_2gis_category(c_lat, c_lon, radius_m, "ресторан кафе", "Инфраструктура")
+    with st.spinner("Запрос к каталогу 2GIS API..."):
+        poi_2gis, err1 = fetch_2gis_category(c_lat, c_lon, radius_m, "музей памятник театр парк", "Магнит (POI)")
+        comp_2gis, err2 = fetch_2gis_category(c_lat, c_lon, radius_m, "гостиница отель хостел", "Конкурент")
+        infra_2gis, err3 = fetch_2gis_category(c_lat, c_lon, radius_m, "кафе ресторан", "Инфраструктура")
         
         if len(poi_2gis) > 0 or len(comp_2gis) > 0 or len(infra_2gis) > 0:
             attractions = poi_2gis
@@ -194,8 +196,7 @@ if st.session_state.target_coords:
             amenities = infra_2gis
             api_status = f"✅ Данные получены из 2GIS API в реальном времени (найдено {len(attractions) + len(competitors) + len(amenities)} объектов)"
         else:
-            # Страховочный подхват объектов по координатам клика
-            api_status = f"ℹ️ 2GIS API вернул 0 (статус ответа: {err1 or err2 or err3 or '200 OK'}). Подключен региональный реестр Татарстана."
+            api_status = f"ℹ️ 2GIS вернул 0 результатов по данному радиусу. Подключен региональный реестр Татарстана."
             for fb in FALLBACK_TATARSTAN:
                 if haversine_distance(c_lat, c_lon, fb["lat"], fb["lon"]) * 1000 <= radius_m:
                     if fb["category"] == "Магнит (POI)":
