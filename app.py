@@ -191,7 +191,6 @@ with tab_route: if not st.session_state.target_coords: st.info("Сначала �
         ordered_poi = solve_tsp_nearest_neighbor(hotel_pt, selected_poi)
         route_coords = [hotel_pt] + [[p['lat'], p['lon']] for p in ordered_poi] + [hotel_pt]
 
-        # Коэффициент дорожного удлинения 1.3
         total_dist_km = sum(
             haversine_distance(route_coords[i][0], route_coords[i][1], route_coords[i+1][0], route_coords[i+1][1]) * 1.3
             for i in range(len(route_coords) - 1)
