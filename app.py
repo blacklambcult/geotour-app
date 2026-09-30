@@ -13,12 +13,12 @@ st.set_page_config(page_title="GeoTour: 2GIS Геоаналитика", layout="
 st.title("🏨 GeoTour: Геомаркетинговый аудит и Конструктор туров")
 st.caption("Система поддержки маркетинговых решений туристского предприятия на базе 2GIS Places API (Республика Татарстан)")
 
-# 2GIS API ключ
+# API Ключ 2ГИС
 TWOGIS_API_KEY = "a7f48cf3-379c-43cb-8f31-99a8688f1319"
 
 # 1. Боковая панель
 st.sidebar.header("Параметры анализа")
-radius_km = st.sidebar.slider("Радиус сканирования (км)", 1, 15, 5, step=1)
+radius_km = st.sidebar.slider("Радиус сканирования (км)", 1, 20, 5, step=1)
 radius_m = radius_km * 1000
 
 st.sidebar.subheader("Слои карты аудита")
@@ -55,16 +55,17 @@ def solve_tsp_nearest_neighbor(start_coords, points):
         cur_lat, cur_lon = next_pt['lat'], next_pt['lon']
     return route
 
-# 3. Запрос данных к 2GIS Places API по официальной документации
+# 3. Запрос данных к 2GIS Places API
 @st.cache_data(show_spinner=False, ttl=1800)
-def fetch_2gis_places(lat, lon, query_text, cat_name):
+def fetch_2gis_places(lat, lon, radius_meters, query_text, cat_name):
     url = "https://catalog.api.2gis.com/3.0/items"
     
-    # Строго по документации: q, location=lon,lat, fields=items.point, key
+    # 2GIS API 3.0: point=lon,lat, radius в метрах, fields=items.point
     params = {
         "q": query_text,
-        "location": f"{lon:.6f},{lat:.6f}",
-        "page_size": 30,
+        "point": f"{lon:.6f},{lat:.6f}",
+        "radius": max(1000, min(radius_meters, 15000)),
+        "page_size": 25,
         "fields": "items.point",
         "key": TWOGIS_API_KEY
     }
@@ -87,7 +88,28 @@ def fetch_2gis_places(lat, lon, query_text, cat_name):
                         "address": it.get("address_name", "")
                     })
         else:
-            error_msg = f"HTTP {r.status_code}: {r.text[:80]}"
+            # Запасной запрос через location
+            params_fallback = {
+                "q": query_text,
+                "location": f"{lon:.6f},{lat:.6f}",
+                "page_size": 25,
+                "fields": "items.point",
+                "key": TWOGIS_API_KEY
+            }
+            r_fb = requests.get(url, params=params_fallback, timeout=8)
+            if r_fb.status_code == 200:
+                for it in r_fb.json().get("result", {}).get("items", []):
+                    pt = it.get("point")
+                    if pt and "lat" in pt and "lon" in pt:
+                        found.append({
+                            "name": it.get("name", "Объект"),
+                            "lat": pt["lat"],
+                            "lon": pt["lon"],
+                            "category": cat_name,
+                            "address": it.get("address_name", "")
+                        })
+            else:
+                error_msg = f"HTTP {r.status_code}"
     except Exception as e:
         error_msg = str(e)
         
@@ -162,23 +184,17 @@ api_status = ""
 if st.session_state.target_coords:
     c_lat, c_lon = st.session_state.target_coords
     with st.spinner("Запрос к официальному каталогу 2GIS Places API..."):
-        # Запросы по документации 2GIS: q=достопримечательности, q=гостиница, q=кафе
-        raw_poi, err1 = fetch_2gis_places(c_lat, c_lon, "достопримечательности", "Магнит (POI)")
-        raw_comp, err2 = fetch_2gis_places(c_lat, c_lon, "гостиница", "Конкурент")
-        raw_infra, err3 = fetch_2gis_places(c_lat, c_lon, "кафе", "Инфраструктура")
-        
-        # Точная фильтрация полученных объектов в радиусе пользователя
-        attractions = [p for p in raw_poi if haversine_distance(c_lat, c_lon, p["lat"], p["lon"]) * 1000 <= radius_m]
-        competitors = [c for c in raw_comp if haversine_distance(c_lat, c_lon, c["lat"], c["lon"]) * 1000 <= radius_m]
-        amenities = [i for i in raw_infra if haversine_distance(c_lat, c_lon, i["lat"], i["lon"]) * 1000 <= radius_m]
+        attractions, err1 = fetch_2gis_places(c_lat, c_lon, radius_m, "музей памятник театр", "Магнит (POI)")
+        competitors, err2 = fetch_2gis_places(c_lat, c_lon, radius_m, "гостиница отель", "Конкурент")
+        amenities, err3 = fetch_2gis_places(c_lat, c_lon, radius_m, "кафе ресторан", "Инфраструктура")
         
         total_found = len(attractions) + len(competitors) + len(amenities)
         if total_found > 0:
             api_status = f"✅ 2GIS Places API вернул {total_found} реальных объектов в радиусе {radius_km} км"
         elif err1 or err2 or err3:
-            api_status = f"⚠️ Ошибка вызова 2GIS: {err1 or err2 or err3}"
+            api_status = f"⚠️ Статус вызова 2GIS: {err1 or err2 or err3}"
         else:
-            api_status = f"ℹ️ 2GIS API отработал штатно, но в радиусе {radius_km} км объекты не найдены. Попробуйте увеличить радиус."
+            api_status = f"ℹ️ В радиусе {radius_km} км объекты не найдены. Увеличьте радиус в левом меню до 5-8 км."
 
 tab_audit, tab_route = st.tabs(["📊 Экспресс-аудит локации", "🗺️ Конструктор экскурсионного маршрута"])
 
