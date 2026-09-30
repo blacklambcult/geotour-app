@@ -1,4 +1,12 @@
-import streamlit as st import folium from folium.plugins import MarkerCluster from streamlit_folium import st_folium import requests import io import math import pandas as pd from fpdf import FPDF
+import streamlit as st 
+import folium 
+from folium.plugins import MarkerCluster
+from streamlit_folium import st_folium 
+import requests 
+import io 
+import math 
+import pandas as pd 
+from fpdf import FPDF
 st.set_page_config(page_title="GeoTour: Геоаналитика туризма", layout="wide")
 st.title("🏨 GeoTour: Геомаркетинговый аудит и Конструктор туров") st.caption("Система поддержки маркетинговых решений туристского предприятия на базе OpenStreetMap (Республика Татарстан / РФ)")
 1. Боковая панель управления
